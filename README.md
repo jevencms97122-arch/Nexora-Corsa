@@ -42,6 +42,52 @@ détectent la nouvelle version au démarrage (bouton « Mettre à jour » dans l
 | Héberger | Génère `server_cfg.ini` / `entry_list.ini` dans le dossier de données de l'app et lance `acServer.exe -c … -e …` |
 | Rejoindre | Écrit un `race.ini` en mode `[REMOTE]` avec ton SteamID64 (Steam doit être ouvert) |
 
+## Archives de mods
+
+Les mods se téléchargent en `.zip`, `.7z` ou `.rar` : le format est reconnu automatiquement, le contenu est analysé
+(`ui_car.json` / `ui_track.json`) puis copié dans `content/cars` ou `content/tracks`. Les `.rar` protégés par mot de passe
+ou répartis en plusieurs parties ne sont pas pris en charge.
+
+Composants tiers : `sevenz-rust2` (7z, Apache-2.0) et `unrar` (RAR, lecture seule, code source UnRAR de RARLAB sous la
+[licence UnRAR](https://www.rarlab.com/rar/unrarsrc-license.txt) : extraction uniquement, jamais de création d'archives RAR).
+
+## Graphismes
+
+La page **Graphismes** regroupe quatre réglages :
+
+- **Profils de qualité** (Équilibré, Élevé, Ultra, Cinéma) : écrivent `video.ini` et des fichiers de surcharge de Custom Shaders Patch dans
+  `Documents/Assetto Corsa/cfg` (et `cfg/extension`), jamais dans le dossier du jeu. Les clés viennent des fichiers de CSP 0.2.x
+  (Extra FX, SSLR, ASSAO, lumières volumétriques, herbe, reflets, distance d'affichage…). Les fichiers d'origine sont sauvegardés avant la
+  première modification et se restaurent d'un clic ; sans CSP, seule la partie vidéo est appliquée.
+- **Carte graphique** : active le réglage Windows « Haute performance » pour `acs.exe`, `AssettoCorsa.exe` et `acs_x86.exe`
+  (`HKCU\Software\Microsoft\DirectX\UserGpuPreferences`). Utile sur un portable avec puce intégrée.
+- **Filtres d'image** : liste les filtres de `system/cfg/ppfilters`, choisit le filtre actif (`video.ini`, `[POST_PROCESS] FILTER`).
+  Un filtre (fichier `.ini` ou archive) s'installe depuis l'onglet Mods.
+- **Ciel et météo** : choix du contrôleur et du style de ciel de WeatherFX (`weather_fx.ini`). Un mod de ciel (Sol, Pure…) téléchargé est reconnu
+  et installé ; seuls `content/weather`, `extension/weather` et `extension/weather-controllers` sont copiés, le reste de l'archive est ignoré.
+
+## Aides à la conduite
+
+Dans **Paramètres → Aides à la conduite**, trois profils reprennent ceux du lanceur d'Assetto Corsa : **Gamer** (toutes les
+aides), **Intermédiaire** et **Pro** (aucune aide). Le profil choisi est écrit dans `Documents/Assetto Corsa/cfg/assists.ini`
+à chaque lancement (solo ou en ligne). Seules les clés du profil sont modifiées (ligne idéale, boîte, embrayage, auto-blip, ABS,
+anti-patinage, stabilité, carburant, usure des pneus) ; dégâts, chauffe-pneus et aspiration restent ceux du jeu. L'ancien fichier est
+sauvegardé une fois en `assists.ini.nexora.bak`.
+
+## Custom Shaders Patch
+
+Nexora-Corsa détecte Custom Shaders Patch (`dwrite.dll` + dossier `extension`, version lue dans `extension/installed.log`).
+S'il manque, l'accueil propose de l'installer : le bouton ouvre la page de téléchargement de la **v0.2.11** sur modland.net
+(miroir tiers, pas le site de l'auteur), l'application repère l'archive dans Téléchargements puis l'installe à la racine du jeu
+après confirmation (l'ancien `dwrite.dll` est conservé en `dwrite.dll.nexora-bak`). Les fichiers de CSP ne sont pas redistribués
+avec Nexora-Corsa. L'adresse se change dans `src-tauri/src/csp.rs` (`DOWNLOAD_URL`).
+
+## Filtre des voitures
+
+Les voitures sont classées « jeu de base », « DLC » (avec le nom du pack) ou « mod » grâce à la liste officielle fournie par
+CSP dans `extension/config/data_standard_content.ini`, ou à une copie de secours intégrée (`src-tauri/src/official_cars.ini`,
+sans aucune clé) quand CSP n'est pas installé. Toute voiture absente de cette liste est un mod.
+
 ## Réseau
 
 Au démarrage d'un serveur, Nexora-Corsa ouvre automatiquement sur ta box (UPnP) les ports **TCP/UDP 9600** et

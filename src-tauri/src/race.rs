@@ -36,7 +36,7 @@ pub struct JoinSettings {
 }
 
 /// Dossier `Documents/Assetto Corsa/cfg` (Documents peut être redirigé, ex. OneDrive).
-fn cfg_dir() -> Result<PathBuf, String> {
+pub(crate) fn cfg_dir() -> Result<PathBuf, String> {
     let docs = dirs::document_dir().ok_or("Dossier Documents introuvable.")?;
     let dir = docs.join("Assetto Corsa").join("cfg");
     if !dir.is_dir() {
@@ -67,6 +67,12 @@ fn clean(value: &str) -> String {
     value.replace(['\r', '\n'], " ").trim().to_string()
 }
 
+/// Angle du soleil pour une heure de la journée (0 à 24) : 13 h = 0°, 16° par heure.
+/// Le jeu seul limite l'angle à ±80° (08:00–18:00) ; au-delà, c'est Custom Shaders Patch qui gère la nuit.
+fn sun_angle(hour: f32) -> i32 {
+    ((hour.clamp(0.0, 24.0) - 13.0) * 16.0).round() as i32
+}
+
 fn common_tail(out: &mut String, weather: &str, sun_angle: i32, ambient: u32) {
     let road = ambient + 6;
     let _ = write!(
@@ -86,7 +92,7 @@ fn common_tail(out: &mut String, weather: &str, sun_angle: i32, ambient: u32) {
 
 fn solo_ini(s: &SoloSettings) -> String {
     let name = clean(&s.player_name);
-    let sun_angle = ((s.hour.clamp(8.0, 18.0) - 13.0) * 16.0).round() as i32;
+    let sun_angle = sun_angle(s.hour);
     let mut out = String::from("[HEADER]\nVERSION=2\n");
     let _ = write!(
         out,
@@ -146,6 +152,7 @@ fn join_ini(j: &JoinSettings) -> Result<String, String> {
 pub fn launch_solo(app: AppHandle, settings: SoloSettings) -> Result<(), String> {
     let ac = crate::config::require_ac(&app)?;
     write_race_ini(&solo_ini(&settings))?;
+    crate::assists::apply_selected(&app, &cfg_dir()?)?;
     launch_game(&ac)?;
     let detail = match settings.session.as_str() {
         "race" => format!("Course, {} tours", settings.laps),
@@ -160,8 +167,55 @@ pub fn launch_solo(app: AppHandle, settings: SoloSettings) -> Result<(), String>
 pub fn join_server(app: AppHandle, settings: JoinSettings) -> Result<(), String> {
     let ac = crate::config::require_ac(&app)?;
     write_race_ini(&join_ini(&settings)?)?;
+    crate::assists::apply_selected(&app, &cfg_dir()?)?;
     launch_game(&ac)?;
     let detail = format!("Serveur {}:{}", settings.ip, settings.tcp_port);
     crate::history::record(&app, "join", &settings.car, "", &detail, None);
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn solo(hour: f32) -> SoloSettings {
+        SoloSettings {
+            car: "bmw_m3_e30".into(),
+            skin: "red".into(),
+            track: "magione".into(),
+            track_config: String::new(),
+            player_name: "Test".into(),
+            ai_count: 0,
+            ai_level: 90,
+            weather: "3_clear".into(),
+            hour,
+            session: "practice".into(),
+            duration_min: 10,
+            laps: 3,
+            ambient_temp: 22,
+        }
+    }
+
+    #[test]
+    fn sun_angle_covers_the_whole_day() {
+        assert_eq!(sun_angle(13.0), 0);
+        assert_eq!(sun_angle(8.0), -80);
+        assert_eq!(sun_angle(18.0), 80);
+        // Hors journée : 16° par heure dans le prolongement, comme le fait Content Manager avec CSP.
+        assert_eq!(sun_angle(0.0), -208);
+        assert_eq!(sun_angle(22.0), 144);
+        assert_eq!(sun_angle(23.75), 172);
+        assert_eq!(sun_angle(14.5), 24);
+        // valeurs absurdes ramenées dans la journée
+        assert_eq!(sun_angle(-5.0), -208);
+        assert_eq!(sun_angle(99.0), sun_angle(24.0));
+    }
+
+    #[test]
+    fn the_chosen_hour_reaches_race_ini() {
+        for (hour, expected) in [(3.0, "SUN_ANGLE=-160"), (13.0, "SUN_ANGLE=0"), (21.5, "SUN_ANGLE=136")] {
+            let ini = solo_ini(&solo(hour));
+            assert!(ini.lines().any(|l| l == expected), "{hour} h devrait donner {expected}");
+        }
+    }
 }

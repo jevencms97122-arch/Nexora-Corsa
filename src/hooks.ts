@@ -1,14 +1,32 @@
 import { createContext, useContext, useEffect, useState } from "react";
-import type { Car, Track } from "./api";
+import { api, type AssistPreset, type Car, type Track } from "./api";
 
 export interface Content {
+  /** Dossier du jeu, pour construire les chemins des images. */
+  acPath: string;
   cars: Car[];
   tracks: Track[];
   weathers: string[];
 }
 
-export const ContentContext = createContext<Content>({ cars: [], tracks: [], weathers: [] });
+export const ContentContext = createContext<Content>({ acPath: "", cars: [], tracks: [], weathers: [] });
 export const useContent = () => useContext(ContentContext);
+
+export type Notify = (msg: string, kind?: "ok" | "error") => void;
+
+let presetsCache: Promise<AssistPreset[]> | null = null;
+
+/** Profils d'aides à la conduite (chargés une seule fois pour toute l'application). */
+export function useAssistPresets(): AssistPreset[] {
+  const [presets, setPresets] = useState<AssistPreset[]>([]);
+  useEffect(() => {
+    presetsCache ??= api.assistPresets();
+    presetsCache.then(setPresets).catch(() => {
+      presetsCache = null;
+    });
+  }, []);
+  return presets;
+}
 
 /** État persisté dans localStorage (préférences du joueur). */
 export function usePersisted<T>(key: string, initial: T): [T, (v: T | ((p: T) => T)) => void] {
@@ -28,21 +46,4 @@ export function usePersisted<T>(key: string, initial: T): [T, (v: T | ((p: T) =>
     }
   }, [key, value]);
   return [value, setValue];
-}
-
-/** Charge une image de façon asynchrone et ignore les réponses périmées. */
-export function useImage(load: (() => Promise<string | null>) | null, deps: unknown[]): string | null {
-  const [src, setSrc] = useState<string | null>(null);
-  useEffect(() => {
-    let cancelled = false;
-    setSrc(null);
-    load?.()
-      .then((s) => !cancelled && setSrc(s))
-      .catch(() => {});
-    return () => {
-      cancelled = true;
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, deps);
-  return src;
 }

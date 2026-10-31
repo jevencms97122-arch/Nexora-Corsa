@@ -13,18 +13,19 @@ crate-type = ["staticlib", "cdylib", "rlib"]
 tauri-build = { version = "2", features = [] }
 
 [dependencies]
-tauri = { version = "2", features = [] }
+tauri = { version = "2", features = ["protocol-asset"] }
 tauri-plugin-opener = "2"
 tauri-plugin-dialog = "2"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 dirs = "6"
-base64 = "0.22"
 igd-next = "0.18.0"
 ureq = "3.5.0"
 zip = "9.2.0"
 tauri-plugin-updater = "2.14.1"
 tauri-plugin-process = "2.4.0"
+sevenz-rust2 = "0.24.2"
+unrar = "0.5.8"
 
 [target.'cfg(windows)'.dependencies]
 winreg = "0.55"

@@ -8,6 +8,8 @@ use tauri::{AppHandle, Manager};
 pub struct AppConfig {
     pub ac_path: Option<String>,
     pub player_name: String,
+    /// Profil d'aides à la conduite ("gamer", "intermediate", "pro") ; vide = profil par défaut.
+    pub assists: String,
 }
 
 fn config_file(app: &AppHandle) -> Result<PathBuf, String> {
@@ -50,13 +52,31 @@ pub fn set_player_name(app: AppHandle, name: String) -> Result<AppConfig, String
 }
 
 #[tauri::command]
+pub fn set_assists(app: AppHandle, preset: String) -> Result<AppConfig, String> {
+    if crate::assists::preset(&preset).is_none() {
+        return Err(format!("Profil d'aides inconnu : {preset}"));
+    }
+    let mut cfg = load(&app);
+    cfg.assists = preset;
+    save(&app, &cfg)?;
+    Ok(cfg)
+}
+
+#[tauri::command]
 pub fn set_ac_path(app: AppHandle, path: String) -> Result<AppConfig, String> {
     let p = PathBuf::from(&path);
     crate::game::validate(&p)?;
+    allow_game_assets(&app, &p);
     let mut cfg = load(&app);
     cfg.ac_path = Some(path);
     save(&app, &cfg)?;
     Ok(cfg)
+}
+
+/// Autorise l'interface à afficher directement les images du dossier `content` du jeu
+/// (aperçus des voitures et circuits), sans passer par des copies en mémoire.
+pub fn allow_game_assets(app: &AppHandle, ac: &std::path::Path) {
+    let _ = app.asset_protocol_scope().allow_directory(ac.join("content"), true);
 }
 
 /// Chemin du jeu configuré, ou une erreur claire.
