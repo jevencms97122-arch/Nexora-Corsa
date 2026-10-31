@@ -1,16 +1,18 @@
 import { open } from "@tauri-apps/plugin-dialog";
 import { useEffect, useState } from "react";
 import { api, errorMessage, type AppConfig } from "../api";
+import type { Updater } from "../updater";
 
 interface Props {
   config: AppConfig;
   onConfig: (c: AppConfig) => void;
+  updater: Updater;
   /** Première configuration : présentation plein écran. */
   firstRun?: boolean;
 }
 
 /** Choix du dossier d'Assetto Corsa : détection automatique ou sélection manuelle. */
-export default function GameSetup({ config, onConfig, firstRun }: Props) {
+export default function GameSetup({ config, onConfig, updater, firstRun }: Props) {
   const [found, setFound] = useState<string[] | null>(null);
   const [error, setError] = useState("");
   const [name, setName] = useState(config.player_name);
@@ -71,6 +73,30 @@ export default function GameSetup({ config, onConfig, firstRun }: Props) {
           📁 Choisir le dossier manuellement…
         </button>
         {error && <p className="error">{error}</p>}
+
+        {!firstRun && (
+          <>
+            <h2>Mises à jour</h2>
+            <p className="muted">
+              Version installée : <b>{updater.version || "?"}</b>
+              {updater.state.phase === "uptodate" && " — à jour"}
+              {updater.state.phase === "available" && ` — version ${updater.state.version} disponible`}
+              {updater.state.phase === "checking" && " — vérification…"}
+            </p>
+            {updater.state.phase === "available" ? (
+              <button className="btn primary" onClick={updater.install}>
+                Installer la mise à jour
+              </button>
+            ) : (
+              <button className="btn" disabled={updater.state.phase === "checking"} onClick={updater.checkNow}>
+                Vérifier les mises à jour
+              </button>
+            )}
+            {updater.state.phase === "error" && (
+              <p className="error small">Vérification impossible (aucune version publiée ou pas de connexion).</p>
+            )}
+          </>
+        )}
       </div>
     </div>
   );

@@ -20,6 +20,19 @@ npm run tauri build
 
 L'installeur NSIS est créé dans `src-tauri/target/release/bundle/nsis/`.
 
+## Publier une version (mises à jour automatiques)
+
+Les mises à jour passent par les Releases GitHub, signées avec une clé que toi seul possèdes.
+
+1. **Une seule fois** : dans GitHub, `Settings → Secrets and variables → Actions`, crée le secret
+   `TAURI_SIGNING_PRIVATE_KEY` avec le contenu du fichier `%USERPROFILE%\.tauri\nexora-corsa.key`
+   (la clé privée reste hors du dépôt : ne la partage jamais, et sauvegarde-la, sans elle plus aucune mise à jour ne peut être signée).
+2. Augmente `version` dans `package.json`, `src-tauri/tauri.conf.json` et `src-tauri/Cargo.toml`.
+3. Publie : `git tag v0.2.0 && git push origin v0.2.0`.
+
+GitHub Actions compile l'installeur, le signe et crée la release avec `latest.json`. Les launchers déjà installés
+détectent la nouvelle version au démarrage (bouton « Mettre à jour » dans la barre latérale).
+
 ## Fonctionnement
 
 | Fonction | Détail |
@@ -43,5 +56,5 @@ et génère des **codes d'invitation** `NXC-…` à coller dans l'onglet « Rejo
 - [x] Phase 3 : UPnP, IP publique, détection CGNAT, code d'invitation
 - [ ] Phase 3 bis : relais / tunnel pour les connexions bloquées par CGNAT
 - [x] Phase 4 : installation de mods par zip (voitures et circuits, désinstallation), historique des sessions avec relance solo
-- [ ] Mises à jour automatiques : nécessite un dépôt de publication (ex. GitHub Releases) et une clé de signature, voir `tauri-plugin-updater`
+- [x] Mises à jour automatiques via GitHub Releases (voir « Publier une version »)
 - [ ] Profils pilotes multiples, chronos issus du jeu

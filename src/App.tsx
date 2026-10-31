@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { api, errorMessage, type AppConfig } from "./api";
 import { ContentContext, type Content } from "./hooks";
+import { useUpdater } from "./updater";
 import GameSetup from "./pages/GameSetup";
 import History from "./pages/History";
 import Mods from "./pages/Mods";
@@ -17,6 +18,7 @@ export default function App() {
   const [loadError, setLoadError] = useState("");
   const [page, setPage] = useState<Page>("solo");
   const [toast, setToast] = useState<Toast>(null);
+  const updater = useUpdater();
 
   const notify = useCallback((msg: string, kind: "ok" | "error" = "ok") => {
     setToast({ msg, kind });
@@ -42,7 +44,7 @@ export default function App() {
   }, [config?.ac_path, loadContent]);
 
   if (!config) return null;
-  if (!config.ac_path) return <GameSetup config={config} onConfig={setConfig} firstRun />;
+  if (!config.ac_path) return <GameSetup config={config} onConfig={setConfig} updater={updater} firstRun />;
 
   const playerName = config.player_name || "Pilote";
   const nav: [Page, string][] = [
@@ -65,11 +67,21 @@ export default function App() {
           </button>
         ))}
         <div className="grow" />
+        {updater.state.phase === "available" && (
+          <button className="update-btn" onClick={updater.install}>
+            ⬆ Mettre à jour vers {updater.state.version}
+          </button>
+        )}
+        {updater.state.phase === "installing" && (
+          <div className="muted small pad">
+            Mise à jour… {updater.state.percent !== null ? `${updater.state.percent} %` : ""}
+          </div>
+        )}
         <div className="muted small pad">Pilote : {playerName}</div>
       </aside>
       <main className="main">
         {page === "settings" ? (
-          <GameSetup config={config} onConfig={setConfig} />
+          <GameSetup config={config} onConfig={setConfig} updater={updater} />
         ) : loadError ? (
           <div className="page">
             <p className="error">{loadError}</p>

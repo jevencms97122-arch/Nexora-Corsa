@@ -23,6 +23,8 @@ base64 = "0.22"
 igd-next = "0.18.0"
 ureq = "3.5.0"
 zip = "9.2.0"
+tauri-plugin-updater = "2.14.1"
+tauri-plugin-process = "2.4.0"
 
 [target.'cfg(windows)'.dependencies]
 winreg = "0.55"
