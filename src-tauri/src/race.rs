@@ -127,14 +127,54 @@ fn solo_ini(s: &SoloSettings) -> String {
     out
 }
 
-fn join_ini(j: &JoinSettings) -> Result<String, String> {
+/// Ce que le serveur annonce sur `http://ip:port_http/INFO` : le jeu a besoin du circuit dans `race.ini`, il ne le déduit pas.
+#[derive(Debug, PartialEq)]
+struct ServerInfo {
+    /// Identifiant du circuit (dossier de `content/tracks`).
+    track: String,
+    /// Configuration (layout) du circuit, vide s'il n'y en a pas.
+    config: String,
+    cars: Vec<String>,
+}
+
+/// `ks_black_cat_county-layout_int` → (`ks_black_cat_county`, `layout_int`). Les identifiants peuvent contenir des « - » :
+/// on retient le découpage dont la première partie est un circuit installé, sinon le premier tiret.
+fn split_track(announced: &str, installed: impl Fn(&str) -> bool) -> (String, String) {
+    let dashes: Vec<usize> = announced.match_indices('-').map(|(i, _)| i).collect();
+    let cut = dashes.iter().copied().find(|&i| installed(&announced[..i])).or_else(|| dashes.first().copied());
+    match cut {
+        Some(i) => (announced[..i].to_string(), announced[i + 1..].to_string()),
+        None => (announced.to_string(), String::new()),
+    }
+}
+
+fn parse_info(body: &str, installed: impl Fn(&str) -> bool) -> Result<ServerInfo, String> {
+    let v: serde_json::Value = serde_json::from_str(body).map_err(|_| "Réponse inattendue du serveur (ce n'est pas un serveur Assetto Corsa ?).".to_string())?;
+    let announced = v["track"].as_str().filter(|t| !t.is_empty()).ok_or("Le serveur n'annonce pas de circuit.")?;
+    let (track, config) = split_track(announced, installed);
+    let cars = v["cars"].as_array().map(|a| a.iter().filter_map(|c| c.as_str().map(str::to_string)).collect()).unwrap_or_default();
+    Ok(ServerInfo { track, config, cars })
+}
+
+fn fetch_info(ac: &Path, ip: &str, http_port: u16) -> Result<ServerInfo, String> {
+    let agent: ureq::Agent = ureq::Agent::config_builder().timeout_global(Some(std::time::Duration::from_secs(5))).build().into();
+    let url = format!("http://{}:{http_port}/INFO", clean(ip));
+    let body = agent
+        .get(&url)
+        .call()
+        .and_then(|mut r| r.body_mut().read_to_string())
+        .map_err(|_| format!("Impossible de joindre le serveur ({}:{http_port}). Vérifie l'adresse, le port HTTP et que le serveur est en ligne.", clean(ip)))?;
+    parse_info(&body, |id| ac.join("content").join("tracks").join(id).is_dir())
+}
+
+fn join_ini(j: &JoinSettings, info: &ServerInfo) -> Result<String, String> {
     let guid = crate::game::steam_id().ok_or("Compte Steam introuvable : ouvre Steam et connecte-toi.")?;
     let name = clean(&j.player_name);
     let mut out = String::from("[HEADER]\nVERSION=2\n");
     let _ = write!(
         out,
         "\n[REMOTE]\nACTIVE=1\nSERVER_IP={ip}\nSERVER_PORT={tcp}\nSERVER_HTTP_PORT={http}\nREQUESTED_CAR={car}\nGUID={guid}\nNAME={name}\nPASSWORD={pw}\n\
-         \n[RACE]\nMODEL={car}\nMODEL_CONFIG=\nSKIN={skin}\nTRACK=\nCONFIG_TRACK=\nAI_LEVEL=100\nCARS=1\nDRIFT_MODE=0\nFIXED_SETUP=0\nPENALTIES=1\nJUMP_START_PENALTY=0\n\
+         \n[RACE]\nMODEL={car}\nMODEL_CONFIG=\nSKIN={skin}\nTRACK={track}\nCONFIG_TRACK={config}\nAI_LEVEL=100\nCARS=1\nDRIFT_MODE=0\nFIXED_SETUP=0\nPENALTIES=1\nJUMP_START_PENALTY=0\n\
          \n[CAR_0]\nSETUP=\nSKIN={skin}\nMODEL=-\nMODEL_CONFIG=\nBALLAST=0\nRESTRICTOR=0\nDRIVER_NAME={name}\nNATIONALITY=\nNATION_CODE=\n\
          \n[SESSION_0]\nNAME=Practice\nTYPE=1\nDURATION_MINUTES=0\nSPAWN_SET=PIT\n",
         ip = clean(&j.ip),
@@ -143,6 +183,8 @@ fn join_ini(j: &JoinSettings) -> Result<String, String> {
         car = j.car,
         skin = j.skin,
         pw = clean(&j.password),
+        track = info.track,
+        config = info.config,
     );
     common_tail(&mut out, "3_clear", 0, 26);
     Ok(out)
@@ -164,13 +206,19 @@ pub fn launch_solo(app: AppHandle, settings: SoloSettings) -> Result<(), String>
 }
 
 #[tauri::command]
-pub fn join_server(app: AppHandle, settings: JoinSettings) -> Result<(), String> {
+pub async fn join_server(app: AppHandle, settings: JoinSettings) -> Result<(), String> {
     let ac = crate::config::require_ac(&app)?;
-    write_race_ini(&join_ini(&settings)?)?;
+    // Le circuit et les voitures viennent du serveur : on les lit avant de lancer, pour écrire un race.ini complet.
+    let (info_ac, ip, http) = (ac.clone(), settings.ip.clone(), settings.http_port);
+    let info = tauri::async_runtime::spawn_blocking(move || fetch_info(&info_ac, &ip, http)).await.map_err(|e| e.to_string())??;
+    if !info.cars.is_empty() && !info.cars.iter().any(|c| c.eq_ignore_ascii_case(&settings.car)) {
+        return Err(format!("Cette voiture n'est pas autorisée sur ce serveur. Voitures acceptées : {}.", info.cars.join(", ")));
+    }
+    write_race_ini(&join_ini(&settings, &info)?)?;
     crate::assists::apply_selected(&app, &cfg_dir()?)?;
     launch_game(&ac)?;
     let detail = format!("Serveur {}:{}", settings.ip, settings.tcp_port);
-    crate::history::record(&app, "join", &settings.car, "", &detail, None);
+    crate::history::record(&app, "join", &settings.car, &info.track, &detail, None);
     Ok(())
 }
 
@@ -216,6 +264,45 @@ mod tests {
         for (hour, expected) in [(3.0, "SUN_ANGLE=-160"), (13.0, "SUN_ANGLE=0"), (21.5, "SUN_ANGLE=136")] {
             let ini = solo_ini(&solo(hour));
             assert!(ini.lines().any(|l| l == expected), "{hour} h devrait donner {expected}");
+        }
+    }
+
+    const INFO: &str = r#"{"ip":"","port":9600,"cport":8081,"name":"Jux","clients":0,"maxclients":2,"track":"ks_black_cat_county-layout_int","cars":["bmw_m3_gt2","bmw_1m"],"pass":false}"#;
+
+    #[test]
+    fn reads_the_track_and_cars_announced_by_the_server() {
+        let info = parse_info(INFO, |_| false).unwrap();
+        assert_eq!((info.track.as_str(), info.config.as_str()), ("ks_black_cat_county", "layout_int"));
+        assert_eq!(info.cars, vec!["bmw_m3_gt2", "bmw_1m"]);
+        let plain = parse_info(r#"{"track":"magione","cars":[]}"#, |_| false).unwrap();
+        assert_eq!((plain.track.as_str(), plain.config.as_str()), ("magione", ""));
+        assert!(parse_info("<html>", |_| false).is_err());
+        assert!(parse_info(r#"{"cars":[]}"#, |_| false).is_err());
+    }
+
+    #[test]
+    fn prefers_the_split_that_matches_an_installed_track() {
+        let installed = |id: &str| id == "my-track";
+        assert_eq!(split_track("my-track-gp", installed), ("my-track".to_string(), "gp".to_string()));
+        assert_eq!(split_track("a-b-c", |_| false), ("a".to_string(), "b-c".to_string()));
+    }
+
+    #[test]
+    fn join_race_ini_carries_the_server_track() {
+        let join = JoinSettings {
+            ip: "127.0.0.1".into(),
+            tcp_port: 9600,
+            http_port: 8081,
+            password: String::new(),
+            car: "bmw_m3_gt2".into(),
+            skin: "0_BMW_Motorsport".into(),
+            player_name: "Jux".into(),
+        };
+        let info = parse_info(INFO, |_| false).unwrap();
+        // L'identifiant Steam peut manquer sur une machine de test : le reste du fichier est alors sans objet.
+        if let Ok(ini) = join_ini(&join, &info) {
+            assert!(ini.lines().any(|l| l == "TRACK=ks_black_cat_county") && ini.lines().any(|l| l == "CONFIG_TRACK=layout_int"));
+            assert!(ini.lines().any(|l| l == "SERVER_HTTP_PORT=8081"));
         }
     }
 }
